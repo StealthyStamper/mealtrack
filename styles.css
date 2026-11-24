@@ -73,7 +73,7 @@ main { padding: 0 16px 24px; max-width: 640px; margin: 0 auto; }
   appearance: none; border: 0; border-radius: 10px;
   background: var(--accent); color: #fff;
   font: inherit; font-weight: 600;
-  padding: 12px 16px; min-height: 44px;
+  padding: 12px 16px; min-height: 44px; white-space: nowrap;
   cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
 }
@@ -148,6 +148,11 @@ label > input, label > select { margin-top: 4px; }
   padding: 10px 12px; margin-top: 8px; cursor: pointer;
 }
 #search-results li { background: var(--bg); }
+#search-results li.section, #search-results li.note {
+  background: none; border: 0; padding: 14px 2px 0; margin: 0; cursor: default; display: block;
+}
+#search-results li.section { font-weight: 600; font-size: .85rem; color: var(--muted); }
+#search-results li.note { font-size: .85rem; color: var(--muted); padding-top: 6px; }
 .food-list img, .food-list .ph {
   width: 44px; height: 44px; border-radius: 8px; object-fit: cover; flex: none; background: var(--line);
 }

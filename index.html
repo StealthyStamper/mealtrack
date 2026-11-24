@@ -63,9 +63,9 @@
       </form>
 
       <form class="card row-form" id="search-form">
-        <label for="search-q">Search by name</label>
+        <label for="search-q">Search foods &amp; restaurants</label>
         <div class="row">
-          <input id="search-q" type="search" autocomplete="off" placeholder="e.g. greek yogurt">
+          <input id="search-q" type="search" autocomplete="off" placeholder="e.g. subway teriyaki, big mac, banana">
           <button class="btn" type="submit">Search</button>
         </div>
         <ul class="food-list" id="search-results"></ul>
@@ -94,6 +94,13 @@
         <button class="btn block" type="submit">Save goals</button>
       </form>
 
+      <form class="card" id="usda-form">
+        <h2>Restaurant search</h2>
+        <p class="muted">Restaurant and everyday foods come from the USDA FoodData Central database. Without a key the app shares a demo key that allows only about 30 searches an hour. A free personal key removes that limit: <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener">get one here</a> (takes a minute, sent by email).</p>
+        <label>USDA API key<input id="usda-key" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your key (optional)"></label>
+        <button class="btn block" type="submit">Save key</button>
+      </form>
+
       <div class="card">
         <h2>Your data</h2>
         <p class="muted">Everything is stored only on this device. Back it up or move it to another phone with export/import.</p>
@@ -105,7 +112,7 @@
         </div>
       </div>
 
-      <p class="muted center small">Nutrition data from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> (ODbL). Values may be incomplete — double-check labels.</p>
+      <p class="muted center small">Nutrition data from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> (ODbL) and <a href="https://fdc.nal.usda.gov" target="_blank" rel="noopener">USDA FoodData Central</a>. Values may be incomplete — double-check labels.</p>
     </section>
   </main>
 

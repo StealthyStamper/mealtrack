@@ -18,6 +18,9 @@ const MACROS = [
   { key: 'fat', label: 'Fat', color: 'var(--fat)' },
 ];
 const DEFAULT_GOALS = { kcal: 2000, protein: 120, carbs: 220, fat: 70 };
+const USDA_BASE = 'https://api.nal.usda.gov/fdc/v1';
+// "SR Legacy" holds named restaurant/fast-food items (e.g. SUBWAY, McDONALD'S); FNDDS holds generic dishes.
+const USDA_TYPES = 'SR Legacy,Survey (FNDDS)';
 
 // ---------- State & persistence ----------
 let state = load();
@@ -28,10 +31,10 @@ function load() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      return { goals: { ...DEFAULT_GOALS, ...s.goals }, log: s.log || {}, foods: s.foods || {} };
+      return { goals: { ...DEFAULT_GOALS, ...s.goals }, log: s.log || {}, foods: s.foods || {}, settings: s.settings || {} };
     }
   } catch (e) { console.warn('Failed to load data', e); }
-  return { goals: { ...DEFAULT_GOALS }, log: {}, foods: {} };
+  return { goals: { ...DEFAULT_GOALS }, log: {}, foods: {}, settings: {} };
 }
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
@@ -184,6 +187,87 @@ async function searchOFF(q) {
   const url = `${OFF_BASE}/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=20&fields=${OFF_FIELDS}`;
   const data = await offFetch(url, 20000);
   return (data.products || []).filter((p) => p.code && p.nutriments).map(offToFood).filter((f) => f.per100 || f.perServing);
+}
+
+// ---------- USDA FoodData Central (restaurants & generic foods) ----------
+class RateLimitError extends Error {}
+function usdaKey() { return (state.settings.usdaKey || '').trim() || 'DEMO_KEY'; }
+async function usdaFetch(path, params = {}) {
+  const qs = new URLSearchParams({ api_key: usdaKey(), ...params });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(`${USDA_BASE}${path}?${qs}`, { signal: ctrl.signal });
+    if (res.status === 429) throw new RateLimitError('USDA rate limit');
+    if (res.status === 403) throw new RateLimitError('USDA key rejected');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  } finally { clearTimeout(timer); }
+}
+// Nutrient numbers used by FoodData Central (search results use nutrientNumber, details use nutrient.number).
+const USDA_NUTRIENTS = { '208': 'kcal', '203': 'protein', '205': 'carbs', '204': 'fat', '269': 'sugar', '291': 'fiber' };
+function usdaNutrients(list) {
+  const out = Object.fromEntries(NUTRIENTS.map((k) => [k, null]));
+  let kj = null, sodiumMg = null;
+  for (const fn of list || []) {
+    const numStr = String(fn.nutrientNumber ?? fn.nutrient?.number ?? '');
+    const val = num(fn.value ?? fn.amount);
+    if (val == null) continue;
+    if (USDA_NUTRIENTS[numStr] && out[USDA_NUTRIENTS[numStr]] == null) out[USDA_NUTRIENTS[numStr]] = val;
+    else if (numStr === '268') kj = val;
+    else if (numStr === '307') sodiumMg = val;
+  }
+  if (out.kcal == null && kj != null) out.kcal = kj / 4.184;
+  if (sodiumMg != null) out.salt = (sodiumMg / 1000) * 2.5;
+  return out.kcal != null ? out : null;
+}
+function titleCase(str) {
+  if (str.replace(/[^A-Za-z]/g, '').length <= 4) return str; // keep acronyms like KFC, A&W
+  return str.toLowerCase().replace(/(^|[\s\-/])([a-z])/g, (m, p, c) => p + c.toUpperCase()).replace(/\bMc([a-z])/g, (m, c) => 'Mc' + c.toUpperCase());
+}
+function splitUsdaName(desc) {
+  // SR Legacy restaurant items look like "SUBWAY, sweet onion chicken teriyaki sub on white bread ...".
+  const i = desc.indexOf(',');
+  const head = i > 0 ? desc.slice(0, i) : '';
+  const upper = (head.match(/[A-Z]/g) || []).length, lower = (head.match(/[a-z]/g) || []).length;
+  if (head && upper > lower * 2 && upper >= 2) {
+    const rest = desc.slice(i + 1).trim();
+    return { brand: titleCase(head), name: rest.charAt(0).toUpperCase() + rest.slice(1) };
+  }
+  return { brand: '', name: desc };
+}
+function usdaToFood(f) {
+  const { brand, name } = splitUsdaName(f.description || 'Unnamed food');
+  return {
+    id: 'usda:' + f.fdcId,
+    fdcId: f.fdcId,
+    name, brand,
+    per100: usdaNutrients(f.foodNutrients) || undefined,
+    source: 'usda',
+  };
+}
+async function searchUSDA(q) {
+  const params = { query: q, dataType: USDA_TYPES, pageSize: '25' };
+  let data = await usdaFetch('/foods/search', { ...params, requireAllWords: 'true' });
+  if (!data.foods || !data.foods.length) data = await usdaFetch('/foods/search', params);
+  return (data.foods || []).map(usdaToFood).filter((f) => f.per100);
+}
+function portionLabel(p) {
+  if (p.portionDescription && !/quantity not specified/i.test(p.portionDescription)) return p.portionDescription;
+  const unit = p.measureUnit && p.measureUnit.name !== 'undetermined' ? p.measureUnit.name : '';
+  return [p.amount && p.amount !== 1 ? fmt(p.amount, 2) : (p.amount ? '1' : ''), unit, p.modifier].filter(Boolean).join(' ').trim();
+}
+// Fetch serving sizes (e.g. "1 sub, 6 inch = 228 g") for a USDA food. Best effort: falls back to grams only.
+async function enrichUSDA(food) {
+  if (!food.fdcId || food.servingGrams) return food;
+  try {
+    const d = await usdaFetch(`/food/${food.fdcId}`);
+    const portions = (d.foodPortions || []).filter((p) => num(p.gramWeight) > 0);
+    const pick = portions.find((p) => !/quantity not specified/i.test(p.portionDescription || '')) || portions[0];
+    if (pick) { food.servingGrams = num(pick.gramWeight); food.servingLabel = `${portionLabel(pick) || 'serving'} · ${fmt(food.servingGrams)} g`; }
+    if (!food.per100) food.per100 = usdaNutrients(d.foodNutrients) || undefined;
+  } catch (e) { console.warn('USDA details failed', e); }
+  return food;
 }
 
 // ---------- Barcode flow ----------
@@ -369,6 +453,7 @@ function renderFoods() {
 function renderSettings() {
   const f = $('#goals-form');
   for (const k of Object.keys(DEFAULT_GOALS)) f.elements[k].value = state.goals[k];
+  $('#usda-key').value = state.settings.usdaKey || '';
 }
 
 // ---------- Add / edit entry sheet ----------
@@ -532,28 +617,48 @@ $('#manual-code-form').addEventListener('submit', (e) => {
   $('#manual-code').blur();
   handleBarcode(code);
 });
+let searchSeq = 0;
 $('#search-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const q = $('#search-q').value.trim();
   if (!q) return;
   $('#search-q').blur();
+  const seq = ++searchSeq;
   const out = $('#search-results');
   const ql = q.toLowerCase();
-  const local = Object.values(state.foods).filter((f) => `${f.name} ${f.brand || ''}`.toLowerCase().includes(ql)).slice(0, 5);
-  const render = (remote, msg) => {
-    const seen = new Set(local.map((f) => f.id));
-    const items = [...local, ...remote.filter((f) => !seen.has(f.id))];
-    out.replaceChildren(...items.map((f) => foodListItem(f, () => openAddSheet(state.foods[f.id] || upsertFood(f)))),
-      msg ? el('p', { class: 'muted small center' }, msg) : null);
+  const words = ql.split(/\s+/);
+  const local = Object.values(state.foods)
+    .filter((f) => { const t = `${f.name} ${f.brand || ''}`.toLowerCase(); return words.every((w) => t.includes(w)); })
+    .slice(0, 5);
+  const res = { usda: null, off: null }; // null = loading, array = results, string = error
+  const pick = async (f) => {
+    if (state.foods[f.id]) return openAddSheet(state.foods[f.id]);
+    if (f.source === 'usda') { toast('Loading serving sizes…'); await enrichUSDA(f); }
+    openAddSheet(upsertFood(f));
   };
-  render([], 'Searching Open Food Facts…');
-  try {
-    const remote = await searchOFF(q);
-    render(remote, remote.length || local.length ? '' : 'No results. Try a different name or create a custom food.');
-  } catch (err) {
-    console.error(err);
-    render([], 'Search failed. Check your connection.');
-  }
+  const section = (title, r, emptyMsg) => {
+    const head = el('li', { class: 'section' }, title);
+    if (r === null) return [head, el('li', { class: 'note' }, 'Searching…')];
+    if (typeof r === 'string') return [head, el('li', { class: 'note' }, r)];
+    if (!r.length) return [head, el('li', { class: 'note' }, emptyMsg)];
+    return [head, ...r.map((f) => foodListItem(f, () => pick(f)))];
+  };
+  const render = () => {
+    if (seq !== searchSeq) return;
+    const seen = new Set(local.map((f) => f.id));
+    const fresh = (r) => (Array.isArray(r) ? r.filter((f) => !seen.has(f.id)) : r);
+    out.replaceChildren(
+      ...(local.length ? section('Your foods', local, '') : []),
+      ...section('Restaurants & everyday foods · USDA', fresh(res.usda), 'No matches. Try fewer words, e.g. “subway teriyaki”.'),
+      ...section('Packaged products · Open Food Facts', fresh(res.off), 'No matches.'),
+    );
+  };
+  render();
+  const errMsg = (err) => (err instanceof RateLimitError
+    ? (state.settings.usdaKey ? 'USDA rejected your API key or it hit its limit. Check it in Settings.' : 'USDA search limit reached for now. Add your free API key in Settings to remove the limit.')
+    : 'Search failed. Check your connection.');
+  searchUSDA(q).then((r) => { res.usda = r; }, (err) => { console.error(err); res.usda = errMsg(err); }).finally(render);
+  searchOFF(q).then((r) => { res.off = r; }, (err) => { console.error(err); res.off = 'Search failed. Check your connection.'; }).finally(render);
 });
 $('#custom-food-btn').addEventListener('click', () => openFoodSheet({}, ''));
 $('#foods-filter').addEventListener('input', renderFoods);
@@ -563,6 +668,11 @@ $('#goals-form').addEventListener('submit', (e) => {
   const f = e.target.elements;
   for (const k of Object.keys(DEFAULT_GOALS)) { const v = num(f[k].value); if (v != null && v >= 0) state.goals[k] = Math.round(v); }
   save(); toast('Goals saved');
+});
+$('#usda-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  state.settings.usdaKey = $('#usda-key').value.trim();
+  save(); toast(state.settings.usdaKey ? 'API key saved' : 'Using the shared demo key');
 });
 $('#export-btn').addEventListener('click', () => {
   download(`mealtrack-backup-${todayKey()}.json`, JSON.stringify({ app: 'mealtrack', version: 1, ...state }, null, 2), 'application/json');
@@ -583,13 +693,13 @@ $('#import-file').addEventListener('change', async (e) => {
     const data = JSON.parse(await file.text());
     if (!data || typeof data.log !== 'object' || typeof data.foods !== 'object') throw new Error('bad file');
     if (!confirm('Replace all current data with this backup?')) return;
-    state = { goals: { ...DEFAULT_GOALS, ...data.goals }, log: data.log, foods: data.foods };
+    state = { goals: { ...DEFAULT_GOALS, ...data.goals }, log: data.log, foods: data.foods, settings: data.settings || {} };
     save(); toast('Backup imported'); renderSettings();
   } catch { toast('That file isn’t a MealTrack backup.'); }
 });
 $('#reset-btn').addEventListener('click', () => {
   if (!confirm('Erase all foods, diary entries and goals from this device? This cannot be undone.')) return;
-  state = { goals: { ...DEFAULT_GOALS }, log: {}, foods: {} };
+  state = { goals: { ...DEFAULT_GOALS }, log: {}, foods: {}, settings: {} };
   save(); renderSettings(); toast('All data erased');
 });
 

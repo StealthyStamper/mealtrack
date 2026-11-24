@@ -7,7 +7,11 @@ web app (PWA), so it works on both iPhone and Android with no app store.
 
 - **Barcode scanning** with the phone camera (EAN-13/8, UPC-A/E). Nutrition data comes from
   [Open Food Facts](https://world.openfoodfacts.org), a free, open database.
-- **Search by name** or **type a barcode** when the camera can't read it.
+- **Restaurant & everyday food search** (e.g. "subway teriyaki", "big mac") via
+  [USDA FoodData Central](https://fdc.nal.usda.gov), plus packaged products from Open Food Facts.
+  Without a key it uses a shared demo key with a low hourly limit; add a
+  [free personal key](https://fdc.nal.usda.gov/api-key-signup) in Settings to lift it.
+- **Type a barcode** when the camera can't read it.
 - **Custom foods.** If a product isn't in the database, enter it from the label once and the
   app remembers it the next time you scan it.
 - **Daily diary** split into breakfast, lunch, dinner and snacks: a calorie ring, protein/carb/fat
