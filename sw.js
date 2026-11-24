@@ -1,5 +1,5 @@
 // Bump VERSION whenever app files change so phones pick up the update.
-const VERSION = 'mealtrack-v3';
+const VERSION = 'mealtrack-v4';
 const SHELL = [
   './',
   'index.html',

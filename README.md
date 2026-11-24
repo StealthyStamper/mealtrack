@@ -18,6 +18,11 @@ web app (PWA), so it works on both iPhone and Android with no app store.
   bars, and editable entries with undo on delete.
 - **Servings or grams**, with each food remembering your usual portion.
 - **My foods** list for quick re-adding.
+- **Exercise from Garmin via Strava.** Workouts recorded on a Garmin sync to Strava. MealTrack
+  pulls them in, with calories, and adds them to that day's calorie budget. You can count all of the
+  exercise calories or only part of them, leave out a single workout, or add exercise by hand. Each
+  person creates their own free Strava API app (Settings has step-by-step instructions), because new
+  Strava apps can connect only their owner. The client secret is stored only on the phone.
 - **Backup & restore for moving phones.** *Save a backup* sends one file (diary, foods, goals,
   settings) through the phone's share menu. *Restore from a backup* loads it on the new phone.
   Settings shows when you last backed up.

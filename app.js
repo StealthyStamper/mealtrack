@@ -31,10 +31,10 @@ function load() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      return { goals: { ...DEFAULT_GOALS, ...s.goals }, log: s.log || {}, foods: s.foods || {}, settings: s.settings || {} };
+      return { goals: { ...DEFAULT_GOALS, ...s.goals }, log: s.log || {}, foods: s.foods || {}, settings: s.settings || {}, exercise: s.exercise || {} };
     }
   } catch (e) { console.warn('Failed to load data', e); }
-  return { goals: { ...DEFAULT_GOALS }, log: {}, foods: {}, settings: {} };
+  return { goals: { ...DEFAULT_GOALS }, log: {}, foods: {}, settings: {}, exercise: {} };
 }
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
@@ -374,16 +374,20 @@ function renderToday() {
   const total = entries.reduce((acc, e) => addN(acc, e.n), emptyN());
   const g = state.goals;
 
-  // Calorie ring
+  // Calorie ring — budget = goal + counted exercise calories
+  const ex = exerciseTotals(currentDate);
+  const budget = g.kcal + ex.counted;
   const C = 2 * Math.PI * 52;
-  const ratio = g.kcal ? total.kcal / g.kcal : 0;
+  const ratio = budget ? total.kcal / budget : 0;
   const ring = $('#kcal-ring');
   ring.style.strokeDasharray = C;
   ring.style.strokeDashoffset = C * (1 - Math.min(ratio, 1));
   ring.classList.toggle('over', ratio > 1);
-  const left = g.kcal - total.kcal;
+  const left = budget - total.kcal;
   $('#kcal-left').textContent = fmt(Math.abs(left));
-  $('#kcal-left-label').textContent = left >= 0 ? `kcal left of ${g.kcal}` : 'kcal over';
+  $('#kcal-left-label').textContent = left >= 0 ? `kcal left of ${fmt(budget)}` : 'kcal over';
+  renderExercise(ex);
+  maybeSyncStrava(currentDate);
 
   // Macro bars
   $('#macro-bars').replaceChildren(...MACROS.map((m) => {
@@ -454,6 +458,7 @@ function renderSettings() {
   const f = $('#goals-form');
   for (const k of Object.keys(DEFAULT_GOALS)) f.elements[k].value = state.goals[k];
   $('#usda-key').value = state.settings.usdaKey || '';
+  renderStravaSettings();
   renderBackupStatus();
 }
 
@@ -729,13 +734,13 @@ $('#import-file').addEventListener('change', async (e) => {
   // Normalise entries from older backups so editing/deleting works.
   for (const [date, list] of Object.entries(data.log)) for (const en of list || []) en.date = en.date || date;
   state = { goals: { ...DEFAULT_GOALS, ...data.goals }, log: data.log, foods: data.foods,
-    settings: { ...(data.settings || {}), lastBackup: Date.now() } };
+    settings: { ...(data.settings || {}), lastBackup: Date.now() }, exercise: data.exercise || {} };
   save(); renderSettings();
   toast(`Restored ${pl(entries, 'entry').replace(/entrys$/, 'entries')} and ${pl(foods, 'food')}`);
 });
 $('#reset-btn').addEventListener('click', () => {
   if (!confirm('Erase all foods, diary entries and goals from this device? This cannot be undone.')) return;
-  state = { goals: { ...DEFAULT_GOALS }, log: {}, foods: {}, settings: {} };
+  state = { goals: { ...DEFAULT_GOALS }, log: {}, foods: {}, settings: {}, exercise: {} };
   save(); renderSettings(); toast('All data erased');
 });
 
@@ -747,6 +752,7 @@ for (const d of document.querySelectorAll('dialog.sheet')) {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) stopScanner();
   else if ($('#view-scan').classList.contains('active') && !$('#add-sheet').open && !$('#food-sheet').open) startScanner();
+  else if ($('#view-today').classList.contains('active')) maybeSyncStrava(currentDate);
 });
 // Roll the diary over to the new day if the app is left open past midnight
 let lastToday = todayKey();
@@ -755,7 +761,250 @@ setInterval(() => {
   if (t !== lastToday) { if (currentDate === lastToday) currentDate = t; lastToday = t; if ($('#view-today').classList.contains('active')) renderToday(); }
 }, 60000);
 
+// ---------- Exercise ----------
+const EXERCISE_ICONS = { Run: '🏃', TrailRun: '🏃', VirtualRun: '🏃', Walk: '🚶', Hike: '🥾', Ride: '🚴', VirtualRide: '🚴',
+  MountainBikeRide: '🚵', GravelRide: '🚴', EBikeRide: '🚴', Swim: '🏊', WeightTraining: '🏋️', Workout: '💪', Yoga: '🧘',
+  Rowing: '🚣', Elliptical: '⚙️', StairStepper: '🪜', HighIntensityIntervalTraining: '🔥', Crossfit: '🔥', Pilates: '🧘', Golf: '⛳',
+  Soccer: '⚽', Tennis: '🎾', Pickleball: '🏓', AlpineSki: '⛷️', NordicSki: '⛷️', Snowboard: '🏂', Kayaking: '🛶', Manual: '✏️' };
+function exercisePct() { const p = state.settings.exercisePct; return p == null ? 100 : p; }
+function exerciseTotals(date) {
+  const items = (state.exercise[date] || []).filter((x) => !x.hidden);
+  const burned = items.reduce((s, x) => s + (x.kcal || 0), 0);
+  return { items: state.exercise[date] || [], burned, counted: Math.round((burned * exercisePct()) / 100) };
+}
+function prettyType(t) { return (t || 'Workout').replace(/([a-z])([A-Z])/g, '$1 $2').replace('High Intensity Interval Training', 'HIIT'); }
+function renderExercise(ex) {
+  const connected = stravaConnected();
+  const syncing = stravaSyncing.has(currentDate);
+  const pct = exercisePct();
+  const head = el('div', { class: 'meal-head' }, el('h2', {}, 'Exercise'),
+    el('span', { class: 'kcal' }, ex.burned ? `+${fmt(ex.counted)} kcal` : ''));
+  const list = ex.items.length ? el('ul', { class: 'entries' }, ex.items.map((x) => el('li', { class: x.hidden ? 'excluded' : '' },
+    el('span', { class: 'ex-icon', 'aria-hidden': 'true' }, EXERCISE_ICONS[x.type] || '💪'),
+    el('div', { class: 'info' },
+      el('div', { class: 'name' }, x.name),
+      el('div', { class: 'sub' }, [x.source === 'strava' ? prettyType(x.type) : 'Added by hand', x.minutes ? `${x.minutes} min` : '',
+        x.source === 'strava' ? 'Strava' : '', x.hidden ? 'not counted' : ''].filter(Boolean).join(' · '))),
+    el('span', { class: 'kcal' }, x.kcal != null ? fmt(x.kcal) : '–'),
+    x.source === 'strava'
+      ? el('button', { class: 'del-btn', 'aria-label': x.hidden ? `Count ${x.name}` : `Don't count ${x.name}`, title: x.hidden ? 'Count it' : 'Don’t count it',
+          onclick: () => { x.hidden = !x.hidden; save(); renderToday(); } }, x.hidden ? '↺' : '×')
+      : el('button', { class: 'del-btn', 'aria-label': `Remove ${x.name}`, onclick: () => removeManualExercise(x) }, '×'),
+  ))) : null;
+  const note = ex.burned && pct !== 100
+    ? el('p', { class: 'muted small ex-note' }, `Counting ${pct}% of ${fmt(ex.burned)} kcal burned. Change this in Settings.`) : null;
+  const status = stravaStatusMsg[currentDate] ? el('p', { class: 'muted small ex-note' }, stravaStatusMsg[currentDate]) : null;
+  const actions = el('div', { class: 'ex-actions' },
+    el('button', { class: 'meal-add', onclick: openExerciseSheet }, '+ Add exercise'),
+    connected
+      ? el('button', { class: 'meal-add', disabled: syncing, onclick: () => syncStrava(currentDate, true) }, syncing ? 'Syncing…' : '↻ Sync Strava')
+      : el('button', { class: 'meal-add', onclick: () => showView('settings') }, 'Connect Strava'));
+  $('#exercise').replaceChildren(el('div', { class: 'card' }, head, list, note, status, actions));
+}
+function openExerciseSheet() {
+  const f = $('#exercise-form'); f.reset();
+  $('#exercise-sheet').showModal();
+}
+$('#exercise-sheet').addEventListener('close', () => {
+  const sheet = $('#exercise-sheet');
+  const ok = sheet.returnValue === 'save'; sheet.returnValue = '';
+  if (!ok) return;
+  const f = $('#exercise-form').elements;
+  const kcal = num(f.kcal.value);
+  if (!(kcal > 0)) return;
+  const list = state.exercise[currentDate] || (state.exercise[currentDate] = []);
+  list.push({ id: 'manual:' + uid(), source: 'manual', type: 'Manual', name: f.name.value.trim() || 'Exercise', kcal, minutes: num(f.minutes.value) || undefined });
+  save(); renderToday(); toast(`Added ${fmt(kcal)} kcal of exercise`);
+});
+function removeManualExercise(x) {
+  const date = currentDate;
+  const list = state.exercise[date] || [];
+  const idx = list.indexOf(x);
+  if (idx < 0) return;
+  list.splice(idx, 1); save(); renderToday();
+  toastUndo(`Removed ${x.name}`, () => { list.splice(idx, 0, x); state.exercise[date] = list; save(); renderToday(); });
+}
+
+// ---------- Strava (Garmin syncs to Strava; we read activities + calories) ----------
+// Each person registers their own free Strava API app (new apps only allow one athlete), and the
+// Client ID/secret are stored on this phone only.
+const STRAVA_OAUTH = 'https://www.strava.com/oauth';
+const STRAVA_API = 'https://www.strava.com/api/v3';
+const OAUTH_STATE_KEY = 'mealtrack.stravaOAuthState';
+const stravaSyncing = new Set();
+const stravaStatusMsg = {};
+class StravaAuthError extends Error {}
+function strava() { return state.settings.strava || (state.settings.strava = {}); }
+function stravaConnected() { return !!strava().refreshToken; }
+function redirectUri() { return location.origin + location.pathname; }
+
+function startStravaConnect() {
+  const s = strava();
+  const id = $('#strava-id').value.trim(), secret = $('#strava-secret').value.trim();
+  if (!/^\d+$/.test(id) || !secret) { toast('Enter your Strava Client ID and Client Secret first.'); return; }
+  s.clientId = id; s.clientSecret = secret; save();
+  const st = uid();
+  try { localStorage.setItem(OAUTH_STATE_KEY, st); } catch {}
+  const qs = new URLSearchParams({ client_id: id, response_type: 'code', redirect_uri: redirectUri(),
+    approval_prompt: 'auto', scope: 'read,activity:read_all', state: st });
+  location.href = `${STRAVA_OAUTH}/authorize?${qs}`;
+}
+async function stravaTokenRequest(params) {
+  // Parameters go in the query string with no body/headers so the browser sends a "simple" CORS request.
+  const res = await fetch(`${STRAVA_OAUTH}/token?${new URLSearchParams(params)}`, { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const why = (data.errors || []).map((e) => `${e.resource || ''} ${e.field || ''} ${e.code || ''}`.trim()).join(', ') || data.message || res.status;
+    throw new StravaAuthError(`Strava refused the request (${why}).`);
+  }
+  return data;
+}
+function storeTokens(d) {
+  const s = strava();
+  s.accessToken = d.access_token; s.refreshToken = d.refresh_token || s.refreshToken; s.expiresAt = d.expires_at;
+  if (d.athlete) s.athlete = [d.athlete.firstname, d.athlete.lastname].filter(Boolean).join(' ');
+  save();
+}
+async function finishStravaConnect(code, scope, returnedState) {
+  const s = strava();
+  let expected = null;
+  try { expected = localStorage.getItem(OAUTH_STATE_KEY); localStorage.removeItem(OAUTH_STATE_KEY); } catch {}
+  if (expected && returnedState && expected !== returnedState) { toast('Strava sign-in didn’t match. Please try connecting again.'); return; }
+  if (scope && !/activity:read/.test(scope)) {
+    toast('Strava connected, but without access to activities. Connect again and leave “View data about your activities” ticked.');
+    return;
+  }
+  if (!s.clientId || !s.clientSecret) {
+    // Sign-in finished in a different browser context (e.g. an iPhone home-screen app opened Safari) — hand the code over manually.
+    $('#strava-code-out').value = code;
+    $('#strava-code-sheet').showModal();
+    return;
+  }
+  try {
+    storeTokens(await stravaTokenRequest({ client_id: s.clientId, client_secret: s.clientSecret, code, grant_type: 'authorization_code' }));
+    toast(`Strava connected${s.athlete ? ` as ${s.athlete}` : ''}`);
+    for (const k of Object.keys(stravaStatusMsg)) delete stravaStatusMsg[k];
+    state.settings.stravaSynced = {};
+    save();
+    showView('today');
+  } catch (e) {
+    console.error(e);
+    toast(e instanceof StravaAuthError ? e.message : 'Couldn’t reach Strava to finish connecting. Check your connection and try again.');
+    showView('settings');
+  }
+}
+async function stravaAccessToken() {
+  const s = strava();
+  if (!s.refreshToken) throw new StravaAuthError('Not connected');
+  if (s.accessToken && s.expiresAt && s.expiresAt - 120 > Date.now() / 1000) return s.accessToken;
+  storeTokens(await stravaTokenRequest({ client_id: s.clientId, client_secret: s.clientSecret, grant_type: 'refresh_token', refresh_token: s.refreshToken }));
+  return s.accessToken;
+}
+async function stravaGet(path, params = {}) {
+  const token = await stravaAccessToken();
+  const res = await fetch(`${STRAVA_API}${path}?${new URLSearchParams(params)}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401) throw new StravaAuthError('Strava access expired or was revoked. Reconnect in Settings.');
+  if (res.status === 429) throw new Error('Strava is rate-limiting requests. Try again in 15 minutes.');
+  if (!res.ok) throw new Error('Strava error ' + res.status);
+  return res.json();
+}
+const stravaAttempt = {};
+function maybeSyncStrava(date) {
+  if (!stravaConnected() || date > todayKey()) return;
+  if (Date.now() - (stravaAttempt[date] || 0) < 2 * 60 * 1000) return; // don't hammer Strava (or loop) after a failure
+  const last = (state.settings.stravaSynced || {})[date];
+  if (last) {
+    const age = Date.now() - last;
+    // Today: refresh every 10 min. Past days: once more if the last sync happened on that same day.
+    if (date === todayKey() ? age < 10 * 60 * 1000 : (dateKey(new Date(last)) !== date || age < 60 * 60 * 1000)) return;
+  }
+  syncStrava(date, false);
+}
+async function syncStrava(date, manual) {
+  if (stravaSyncing.has(date)) return;
+  stravaSyncing.add(date);
+  stravaAttempt[date] = Date.now();
+  delete stravaStatusMsg[date];
+  if (date === currentDate && $('#view-today').classList.contains('active')) renderExercise(exerciseTotals(date));
+  try {
+    const start = parseKey(date), end = parseKey(shiftDay(date, 1));
+    const acts = await stravaGet('/athlete/activities', { after: String(start / 1000 - 1), before: String(end / 1000), per_page: '50' });
+    const existing = Object.fromEntries((state.exercise[date] || []).map((x) => [x.id, x]));
+    const fromStrava = [];
+    for (const a of acts) {
+      const id = 'strava:' + a.id;
+      const prev = existing[id];
+      let kcal = prev && prev.kcal != null ? prev.kcal : null;
+      if (kcal == null) {
+        // Calories are only on the detailed activity, so fetch each new activity once.
+        try { const d = await stravaGet(`/activities/${a.id}`); kcal = num(d.calories) || null; } catch (e) { if (e instanceof StravaAuthError) throw e; console.warn(e); }
+        // Rides with a power meter report work in kJ, which roughly equals kcal burned.
+        if (kcal == null && num(a.kilojoules)) kcal = num(a.kilojoules);
+      }
+      fromStrava.push({ id, source: 'strava', name: a.name, type: a.sport_type || a.type,
+        minutes: Math.round((a.moving_time || a.elapsed_time || 0) / 60) || undefined, kcal, hidden: prev ? prev.hidden : false,
+        start: a.start_date });
+    }
+    fromStrava.sort((x, y) => String(x.start).localeCompare(String(y.start)));
+    const manualItems = (state.exercise[date] || []).filter((x) => x.source !== 'strava');
+    state.exercise[date] = [...fromStrava, ...manualItems];
+    if (!state.exercise[date].length) delete state.exercise[date];
+    (state.settings.stravaSynced || (state.settings.stravaSynced = {}))[date] = Date.now();
+    save();
+    if (manual) toast(fromStrava.length ? `Synced ${fromStrava.length} Strava ${fromStrava.length === 1 ? 'activity' : 'activities'}` : 'No Strava activities on this day');
+  } catch (e) {
+    console.error(e);
+    stravaStatusMsg[date] = e instanceof StravaAuthError || /rate-limiting/.test(e.message) ? e.message : 'Couldn’t reach Strava. Pull in activities later with ↻ Sync.';
+    if (e instanceof StravaAuthError && e.message !== 'Not connected') { const s = strava(); delete s.accessToken; }
+  } finally {
+    stravaSyncing.delete(date);
+    if (date === currentDate && $('#view-today').classList.contains('active')) renderToday();
+  }
+}
+function renderStravaSettings() {
+  const s = strava();
+  const connected = stravaConnected();
+  $('#strava-id').value = s.clientId || '';
+  $('#strava-secret').value = s.clientSecret || '';
+  $('#strava-status').textContent = connected ? `✓ Connected${s.athlete ? ` as ${s.athlete}` : ''}` : 'Not connected';
+  $('#strava-status').classList.toggle('ok', connected);
+  $('#strava-connect').textContent = connected ? 'Reconnect Strava' : 'Connect Strava';
+  $('#strava-disconnect').hidden = !connected;
+  $('#strava-setup').open = !connected;
+  $('#exercise-pct').value = String(exercisePct());
+  for (const n of document.querySelectorAll('.this-site')) n.textContent = redirectUri();
+  for (const n of document.querySelectorAll('.this-host')) n.textContent = location.hostname;
+}
+$('#strava-connect').addEventListener('click', startStravaConnect);
+$('#strava-disconnect').addEventListener('click', async () => {
+  if (!confirm('Disconnect Strava? Activities already pulled in stay in your diary.')) return;
+  const s = strava();
+  if (s.accessToken) fetch(`${STRAVA_OAUTH}/deauthorize?access_token=${encodeURIComponent(s.accessToken)}`, { method: 'POST' }).catch(() => {});
+  delete s.accessToken; delete s.refreshToken; delete s.expiresAt; delete s.athlete;
+  state.settings.stravaSynced = {};
+  save(); renderStravaSettings(); toast('Strava disconnected');
+});
+$('#exercise-pct').addEventListener('change', (e) => { state.settings.exercisePct = Number(e.target.value); save(); toast('Saved'); });
+$('#strava-code-copy').addEventListener('click', async () => {
+  const v = $('#strava-code-out').value;
+  try { await navigator.clipboard.writeText(v); toast('Code copied'); } catch { $('#strava-code-out').select(); }
+});
+$('#strava-code-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const code = $('#strava-code-in').value.trim();
+  if (!code) return;
+  $('#strava-code-in').value = '';
+  finishStravaConnect(code, '', null);
+});
+
 // ---------- Boot ----------
+(function handleOAuthRedirect() {
+  const p = new URLSearchParams(location.search);
+  if (!p.has('code') && !p.has('error')) return;
+  history.replaceState(null, '', location.pathname);
+  if (p.get('error')) { toast('Strava connection was cancelled.'); return; }
+  finishStravaConnect(p.get('code'), p.get('scope') || '', p.get('state'));
+})();
 renderToday();
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW registration failed', e));

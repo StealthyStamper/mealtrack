@@ -34,6 +34,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg);
@@ -111,6 +112,16 @@ label > input, label > select { margin-top: 4px; }
 .howto summary { color: var(--accent); font-weight: 600; cursor: pointer; padding: 6px 0; }
 .howto ol { padding-left: 20px; margin: 8px 0; }
 .howto li { margin-bottom: 6px; }
+
+/* Exercise */
+.ex-icon { font-size: 1.3rem; width: 28px; text-align: center; flex: none; }
+.entries li.excluded .info, .entries li.excluded .kcal, .entries li.excluded .ex-icon { opacity: .45; text-decoration: line-through; }
+.ex-note { margin: 8px 0 0; }
+.ex-actions { display: flex; justify-content: space-between; gap: 12px; }
+.meal-add:disabled { opacity: .5; }
+.backup-status.ok { color: var(--accent); }
+.howto ul { padding-left: 18px; margin: 6px 0; }
+.howto code { font-size: .8rem; word-break: break-all; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
 
 /* Date bar */
 .datebar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }

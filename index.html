@@ -43,6 +43,7 @@
         <div class="macros" id="macro-bars"></div>
       </div>
 
+      <div id="exercise"></div>
       <div id="meals"></div>
     </section>
 
@@ -93,6 +94,53 @@
         </div>
         <button class="btn block" type="submit">Save goals</button>
       </form>
+
+      <div class="card" id="strava-card">
+        <h2>Exercise from Garmin (via Strava)</h2>
+        <p class="muted">Workouts recorded on your Garmin sync to Strava, and MealTrack pulls them in and adds the calories burned to that day's budget.</p>
+        <p class="backup-status" id="strava-status"></p>
+        <details class="howto" id="strava-setup">
+          <summary>One-time setup (about 5 minutes)</summary>
+          <ol>
+            <li>In the <strong>Garmin Connect</strong> app, make sure Strava is linked: <em>More → Settings → Connected Apps → Strava</em>.</li>
+            <li>In a web browser, sign in at <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a> and create an app:
+              <ul>
+                <li><b>Application Name:</b> MealTrack (anything works)</li>
+                <li><b>Category:</b> Other</li>
+                <li><b>Website:</b> <code class="this-site"></code></li>
+                <li><b>Authorization Callback Domain:</b> <code class="this-host"></code></li>
+              </ul>
+              Strava may ask you to upload an icon. Any image is fine.
+            </li>
+            <li>Copy the <b>Client ID</b> and <b>Client Secret</b> it shows into the boxes below, then tap <em>Connect Strava</em> and approve access.</li>
+          </ol>
+          <p class="muted small">Your secret is stored only on this phone (and in your backups). Each person sets up their own Strava app, because Strava lets a new app connect only its owner.</p>
+        </details>
+        <label>Client ID<input id="strava-id" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456"></label>
+        <label>Client Secret<input id="strava-secret" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="40-character secret"></label>
+        <div class="stack">
+          <button class="btn" type="button" id="strava-connect">Connect Strava</button>
+          <button class="btn danger" type="button" id="strava-disconnect" hidden>Disconnect</button>
+        </div>
+        <label style="margin-top:16px">Count exercise calories toward my budget
+          <select id="exercise-pct">
+            <option value="100">100% (all of it)</option>
+            <option value="75">75%</option>
+            <option value="50">50%</option>
+            <option value="25">25%</option>
+            <option value="0">0% (just show them)</option>
+          </select>
+        </label>
+        <p class="muted small">Watch calorie estimates often run high, so many people count 50–75%.</p>
+        <details class="howto">
+          <summary>Strava sent me to a browser instead of the app?</summary>
+          <p class="muted small">If connecting finished in a browser window and showed you a code, copy it and paste it here.</p>
+          <form class="row" id="strava-code-form">
+            <input id="strava-code-in" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste code">
+            <button class="btn" type="submit">Finish</button>
+          </form>
+        </details>
+      </div>
 
       <form class="card" id="usda-form">
         <h2>Restaurant search</h2>
@@ -195,6 +243,36 @@
       <div class="row">
         <button class="btn secondary grow" value="cancel" formnovalidate>Cancel</button>
         <button class="btn grow" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Manual exercise sheet -->
+  <dialog id="exercise-sheet" class="sheet">
+    <form method="dialog" id="exercise-form">
+      <h2>Add exercise</h2>
+      <p class="muted small">For workouts that aren't on Strava. Use the calories your watch or machine shows.</p>
+      <label>What did you do?<input name="name" placeholder="e.g. Yard work"></label>
+      <div class="grid2">
+        <label>Calories burned<input name="kcal" type="number" inputmode="numeric" min="1" required></label>
+        <label>Minutes (optional)<input name="minutes" type="number" inputmode="numeric" min="0"></label>
+      </div>
+      <div class="row">
+        <button class="btn secondary grow" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn grow" value="save">Add</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Shown when Strava sign-in finishes outside the installed app -->
+  <dialog id="strava-code-sheet" class="sheet">
+    <form method="dialog">
+      <h2>One more step</h2>
+      <p class="muted">Strava finished signing in, but in a browser window instead of the MealTrack app. Copy this code, switch back to MealTrack, and paste it under <em>Settings → Exercise → “Strava sent me to a browser…”</em>.</p>
+      <input id="strava-code-out" readonly>
+      <div class="row">
+        <button class="btn secondary grow" type="button" id="strava-code-copy">Copy code</button>
+        <button class="btn grow" value="close">Done</button>
       </div>
     </form>
   </dialog>
