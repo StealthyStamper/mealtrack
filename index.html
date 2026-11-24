@@ -102,12 +102,28 @@
       </form>
 
       <div class="card">
-        <h2>Your data</h2>
-        <p class="muted">Everything is stored only on this device. Back it up or move it to another phone with export/import.</p>
+        <h2>Backup &amp; moving phones</h2>
+        <p class="muted">Your diary lives only on this phone. A backup is a single file holding your diary, foods, goals and settings.</p>
+        <p class="backup-status" id="backup-status"></p>
         <div class="stack">
-          <button class="btn secondary" id="export-btn">Export backup (JSON)</button>
-          <button class="btn secondary" id="export-csv-btn">Export log (CSV)</button>
-          <label class="btn secondary file-btn">Import backup<input type="file" id="import-file" accept="application/json,.json" hidden></label>
+          <button class="btn" id="export-btn">Save a backup</button>
+          <label class="btn secondary file-btn">Restore from a backup<input type="file" id="import-file" accept="application/json,.json,text/plain,.txt" hidden></label>
+        </div>
+        <details class="howto">
+          <summary>How to move to a new phone</summary>
+          <ol>
+            <li>On your <strong>old phone</strong>, tap <em>Save a backup</em> and send the file somewhere you can reach from the new phone: email it to yourself, or save it to iCloud Drive / Google Drive / Files.</li>
+            <li>On your <strong>new phone</strong>, open the MealTrack link, add it to your home screen, and open it.</li>
+            <li>Go to Settings → <em>Restore from a backup</em> and pick the file.</li>
+          </ol>
+          <p class="muted small">Restoring replaces everything on that phone with the backup's contents.</p>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2>Other</h2>
+        <div class="stack">
+          <button class="btn secondary" id="export-csv-btn">Export diary as spreadsheet (CSV)</button>
           <button class="btn danger" id="reset-btn">Erase all data</button>
         </div>
       </div>

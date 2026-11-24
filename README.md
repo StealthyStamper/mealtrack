@@ -18,7 +18,10 @@ web app (PWA), so it works on both iPhone and Android with no app store.
   bars, and editable entries with undo on delete.
 - **Servings or grams**, with each food remembering your usual portion.
 - **My foods** list for quick re-adding.
-- **Goals, JSON backup/restore, and CSV export.**
+- **Backup & restore for moving phones.** *Save a backup* sends one file (diary, foods, goals,
+  settings) through the phone's share menu. *Restore from a backup* loads it on the new phone.
+  Settings shows when you last backed up.
+- **Goals and CSV export.**
 - **Private and offline.** All data stays in your phone's browser storage. Foods you've already
   scanned work without a connection.
 

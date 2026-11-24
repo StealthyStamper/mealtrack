@@ -105,6 +105,13 @@ label > input, label > select { margin-top: 4px; }
 .filter { margin-bottom: 12px; }
 .file-btn { color: var(--text); font-size: 1rem; margin: 0; }
 
+.backup-status { margin: 12px 0 0; font-weight: 600; }
+.backup-status.stale { color: var(--danger); }
+.howto { margin-top: 14px; }
+.howto summary { color: var(--accent); font-weight: 600; cursor: pointer; padding: 6px 0; }
+.howto ol { padding-left: 20px; margin: 8px 0; }
+.howto li { margin-bottom: 6px; }
+
 /* Date bar */
 .datebar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .date-label { background: none; border: 0; font: inherit; font-weight: 600; color: var(--text); padding: 10px; }

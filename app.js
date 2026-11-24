@@ -454,6 +454,7 @@ function renderSettings() {
   const f = $('#goals-form');
   for (const k of Object.keys(DEFAULT_GOALS)) f.elements[k].value = state.goals[k];
   $('#usda-key').value = state.settings.usdaKey || '';
+  renderBackupStatus();
 }
 
 // ---------- Add / edit entry sheet ----------
@@ -674,8 +675,30 @@ $('#usda-form').addEventListener('submit', (e) => {
   state.settings.usdaKey = $('#usda-key').value.trim();
   save(); toast(state.settings.usdaKey ? 'API key saved' : 'Using the shared demo key');
 });
-$('#export-btn').addEventListener('click', () => {
-  download(`mealtrack-backup-${todayKey()}.json`, JSON.stringify({ app: 'mealtrack', version: 1, ...state }, null, 2), 'application/json');
+// Share a file through the phone's share sheet (reliable in installed iPhone apps); fall back to a download.
+async function shareOrDownload(name, text, type) {
+  const file = new File([text], name, { type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); return true; }
+    catch (e) { if (e.name === 'AbortError') return false; console.warn('Share failed, downloading instead', e); }
+  }
+  download(name, text, type);
+  return true;
+}
+function renderBackupStatus() {
+  const s = $('#backup-status');
+  const last = state.settings.lastBackup;
+  const days = last ? Math.floor((Date.now() - last) / 86400000) : null;
+  s.textContent = last
+    ? `Last backup: ${days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`} (${new Date(last).toLocaleDateString()})`
+    : 'You haven’t saved a backup on this phone yet.';
+  s.classList.toggle('stale', !last || days > 30);
+}
+$('#export-btn').addEventListener('click', async () => {
+  const backup = { app: 'mealtrack', version: 1, exportedAt: new Date().toISOString(), ...state,
+    settings: { ...state.settings, lastBackup: undefined } };
+  const ok = await shareOrDownload(`mealtrack-backup-${todayKey()}.json`, JSON.stringify(backup), 'application/json');
+  if (ok) { state.settings.lastBackup = Date.now(); save(); renderBackupStatus(); toast('Backup saved'); }
 });
 $('#export-csv-btn').addEventListener('click', () => {
   const esc = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -683,19 +706,32 @@ $('#export-csv-btn').addEventListener('click', () => {
   for (const date of Object.keys(state.log).sort()) {
     for (const e of state.log[date]) rows.push([date, e.meal, e.name, e.brand, e.amount, e.unit, ...NUTRIENTS.map((k) => fmt(e.n[k], 2))]);
   }
-  download(`mealtrack-log-${todayKey()}.csv`, rows.map((r) => r.map(esc).join(',')).join('\n'), 'text/csv');
+  shareOrDownload(`mealtrack-log-${todayKey()}.csv`, rows.map((r) => r.map(esc).join(',')).join('\n'), 'text/csv');
 });
 $('#import-file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
+  let data;
   try {
-    const data = JSON.parse(await file.text());
-    if (!data || typeof data.log !== 'object' || typeof data.foods !== 'object') throw new Error('bad file');
-    if (!confirm('Replace all current data with this backup?')) return;
-    state = { goals: { ...DEFAULT_GOALS, ...data.goals }, log: data.log, foods: data.foods, settings: data.settings || {} };
-    save(); toast('Backup imported'); renderSettings();
-  } catch { toast('That file isn’t a MealTrack backup.'); }
+    data = JSON.parse(await file.text());
+    if (!data || typeof data.log !== 'object' || typeof data.foods !== 'object' || !data.log || !data.foods) throw new Error('bad file');
+  } catch { toast('That file isn’t a MealTrack backup.'); return; }
+  const days = Object.keys(data.log).filter((k) => (data.log[k] || []).length).length;
+  const entries = Object.values(data.log).reduce((n, l) => n + (l || []).length, 0);
+  const foods = Object.keys(data.foods).length;
+  const when = data.exportedAt ? ` from ${new Date(data.exportedAt).toLocaleDateString()}` : '';
+  const curEntries = Object.values(state.log).reduce((n, l) => n + l.length, 0);
+  const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const msg = `Restore this backup${when}?\n\nIt has ${pl(entries, 'diary entry').replace(/entrys$/, 'entries')} over ${pl(days, 'day')} and ${pl(foods, 'saved food')}.`
+    + (curEntries ? `\n\nThis replaces the ${pl(curEntries, 'entry').replace(/entrys$/, 'entries')} currently on this phone.` : '');
+  if (!confirm(msg)) return;
+  // Normalise entries from older backups so editing/deleting works.
+  for (const [date, list] of Object.entries(data.log)) for (const en of list || []) en.date = en.date || date;
+  state = { goals: { ...DEFAULT_GOALS, ...data.goals }, log: data.log, foods: data.foods,
+    settings: { ...(data.settings || {}), lastBackup: Date.now() } };
+  save(); renderSettings();
+  toast(`Restored ${pl(entries, 'entry').replace(/entrys$/, 'entries')} and ${pl(foods, 'food')}`);
 });
 $('#reset-btn').addEventListener('click', () => {
   if (!confirm('Erase all foods, diary entries and goals from this device? This cannot be undone.')) return;
