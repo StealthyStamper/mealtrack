@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MealTrack</title>
+  <meta name="description" content="Scan food barcodes and track your nutrition.">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="MealTrack">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="view-title">Today</h1>
+  </header>
+
+  <main>
+    <!-- TODAY -->
+    <section id="view-today" class="view active" aria-labelledby="view-title">
+      <div class="datebar">
+        <button class="icon-btn" id="prev-day" aria-label="Previous day">‹</button>
+        <button class="date-label" id="date-label"></button>
+        <button class="icon-btn" id="next-day" aria-label="Next day">›</button>
+      </div>
+
+      <div class="card summary">
+        <div class="kcal-ring">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle cx="60" cy="60" r="52" class="ring-bg"/>
+            <circle cx="60" cy="60" r="52" class="ring-fg" id="kcal-ring"/>
+          </svg>
+          <div class="kcal-text">
+            <strong id="kcal-left">0</strong>
+            <span id="kcal-left-label">kcal left</span>
+          </div>
+        </div>
+        <div class="macros" id="macro-bars"></div>
+      </div>
+
+      <div id="meals"></div>
+    </section>
+
+    <!-- SCAN -->
+    <section id="view-scan" class="view">
+      <div class="card scanner-card">
+        <div id="reader"></div>
+        <p class="muted center" id="scan-status">Point your camera at a barcode.</p>
+        <button class="btn" id="scan-toggle">Start camera</button>
+      </div>
+
+      <form class="card row-form" id="manual-code-form">
+        <label for="manual-code">Or type a barcode</label>
+        <div class="row">
+          <input id="manual-code" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="e.g. 3017624010701">
+          <button class="btn" type="submit">Look up</button>
+        </div>
+      </form>
+
+      <form class="card row-form" id="search-form">
+        <label for="search-q">Search by name</label>
+        <div class="row">
+          <input id="search-q" type="search" autocomplete="off" placeholder="e.g. greek yogurt">
+          <button class="btn" type="submit">Search</button>
+        </div>
+        <ul class="food-list" id="search-results"></ul>
+      </form>
+
+      <button class="btn secondary block" id="custom-food-btn">+ Create a custom food</button>
+    </section>
+
+    <!-- FOODS -->
+    <section id="view-foods" class="view">
+      <input id="foods-filter" type="search" placeholder="Filter your foods…" class="filter">
+      <ul class="food-list" id="foods-list"></ul>
+      <p class="muted center" id="foods-empty">Foods you scan or create show up here for quick re-adding.</p>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="view-settings" class="view">
+      <form class="card" id="goals-form">
+        <h2>Daily goals</h2>
+        <div class="grid2">
+          <label>Calories (kcal)<input name="kcal" type="number" inputmode="numeric" min="0"></label>
+          <label>Protein (g)<input name="protein" type="number" inputmode="numeric" min="0"></label>
+          <label>Carbs (g)<input name="carbs" type="number" inputmode="numeric" min="0"></label>
+          <label>Fat (g)<input name="fat" type="number" inputmode="numeric" min="0"></label>
+        </div>
+        <button class="btn block" type="submit">Save goals</button>
+      </form>
+
+      <div class="card">
+        <h2>Your data</h2>
+        <p class="muted">Everything is stored only on this device. Back it up or move it to another phone with export/import.</p>
+        <div class="stack">
+          <button class="btn secondary" id="export-btn">Export backup (JSON)</button>
+          <button class="btn secondary" id="export-csv-btn">Export log (CSV)</button>
+          <label class="btn secondary file-btn">Import backup<input type="file" id="import-file" accept="application/json,.json" hidden></label>
+          <button class="btn danger" id="reset-btn">Erase all data</button>
+        </div>
+      </div>
+
+      <p class="muted center small">Nutrition data from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> (ODbL). Values may be incomplete — double-check labels.</p>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Main">
+    <button data-view="today" class="active"><span aria-hidden="true">📅</span>Today</button>
+    <button data-view="scan"><span aria-hidden="true">📷</span>Scan</button>
+    <button data-view="foods"><span aria-hidden="true">⭐</span>Foods</button>
+    <button data-view="settings"><span aria-hidden="true">⚙️</span>Settings</button>
+  </nav>
+
+  <!-- Add-to-log sheet -->
+  <dialog id="add-sheet" class="sheet">
+    <form method="dialog" id="add-form">
+      <div class="sheet-head">
+        <img id="add-img" alt="" hidden>
+        <div>
+          <h2 id="add-name"></h2>
+          <p class="muted" id="add-brand"></p>
+        </div>
+      </div>
+      <div class="row">
+        <label class="grow">Amount<input id="add-amount" type="number" inputmode="decimal" min="0" step="any" required></label>
+        <label>Unit
+          <select id="add-unit"></select>
+        </label>
+      </div>
+      <label>Meal
+        <select id="add-meal"></select>
+      </label>
+      <div class="nutri-grid" id="add-nutri"></div>
+      <p class="muted small" id="add-note"></p>
+      <div class="row">
+        <button class="btn secondary grow" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn grow" id="add-submit" value="add">Add</button>
+      </div>
+      <button type="button" class="link-btn" id="add-edit-food">Edit food details</button>
+    </form>
+  </dialog>
+
+  <!-- Custom / edit food sheet -->
+  <dialog id="food-sheet" class="sheet">
+    <form method="dialog" id="food-form">
+      <h2 id="food-sheet-title">Custom food</h2>
+      <p class="muted small" id="food-sheet-hint"></p>
+      <label>Name<input name="name" required></label>
+      <label>Brand<input name="brand"></label>
+      <label>Barcode<input name="barcode" inputmode="numeric"></label>
+      <div class="grid2">
+        <label>Serving size (g)<input name="servingGrams" type="number" inputmode="decimal" step="any" min="0"></label>
+        <label>Values are per
+          <select name="basis">
+            <option value="100">100 g</option>
+            <option value="serving">serving</option>
+          </select>
+        </label>
+        <label>Calories (kcal)<input name="kcal" type="number" inputmode="decimal" step="any" min="0" required></label>
+        <label>Protein (g)<input name="protein" type="number" inputmode="decimal" step="any" min="0"></label>
+        <label>Carbs (g)<input name="carbs" type="number" inputmode="decimal" step="any" min="0"></label>
+        <label>Fat (g)<input name="fat" type="number" inputmode="decimal" step="any" min="0"></label>
+        <label>Sugar (g)<input name="sugar" type="number" inputmode="decimal" step="any" min="0"></label>
+        <label>Fiber (g)<input name="fiber" type="number" inputmode="decimal" step="any" min="0"></label>
+        <label>Salt (g)<input name="salt" type="number" inputmode="decimal" step="any" min="0"></label>
+      </div>
+      <div class="row">
+        <button class="btn secondary grow" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn grow" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="vendor/html5-qrcode.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
