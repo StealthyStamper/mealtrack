@@ -20,9 +20,9 @@ web app (PWA), so it works on both iPhone and Android with no app store.
 
 ## Install on your phone
 
-1. Host the app over HTTPS (browsers only allow the camera on HTTPS). The included workflow
-   deploys it to GitHub Pages: in the repo, go to **Settings → Pages → Source: GitHub Actions**,
-   then push to `main`.
+1. Host the app over HTTPS (browsers only allow the camera on HTTPS). With GitHub Pages:
+   **Settings → Pages → Source: Deploy from a branch → Branch: `main`, folder `/ (root)` → Save**.
+   Every push to `main` then redeploys automatically.
 2. Open the Pages URL on your phone.
    - **iPhone (Safari):** Share → **Add to Home Screen**.
    - **Android (Chrome):** ⋮ menu → **Install app** / **Add to Home screen**.
